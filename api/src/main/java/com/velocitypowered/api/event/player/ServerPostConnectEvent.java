@@ -19,14 +19,11 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  */
 public class ServerPostConnectEvent {
   private final Player player;
-  private final RegisteredServer server;
   private final RegisteredServer previousServer;
 
   public ServerPostConnectEvent(Player player,
-                                RegisteredServer server,
-                                @Nullable RegisteredServer previousServer) {
+      @Nullable RegisteredServer previousServer) {
     this.player = Preconditions.checkNotNull(player, "player");
-    this.server = server;
     this.previousServer = previousServer;
   }
 
@@ -37,10 +34,6 @@ public class ServerPostConnectEvent {
    */
   public Player getPlayer() {
     return player;
-  }
-
-  public RegisteredServer getServer() {
-    return server;
   }
 
   /**
@@ -57,7 +50,6 @@ public class ServerPostConnectEvent {
   public String toString() {
     return "ServerPostConnectEvent{"
         + "player=" + player
-        + ", server=" + server
         + ", previousServer=" + previousServer
         + '}';
   }
