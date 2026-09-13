@@ -17,15 +17,13 @@
 
 package com.velocitypowered.proxy.protocol.packet.chat.session;
 
-import static com.velocitypowered.proxy.protocol.packet.chat.keyed.KeyedChatHandler.invalidCancel;
-import static com.velocitypowered.proxy.protocol.packet.chat.keyed.KeyedChatHandler.invalidChange;
-
 import com.velocitypowered.api.event.EventManager;
 import com.velocitypowered.api.event.player.PlayerChatEvent;
 import com.velocitypowered.proxy.VelocityServer;
 import com.velocitypowered.proxy.connection.client.ConnectedPlayer;
 import com.velocitypowered.proxy.protocol.packet.chat.ChatHandler;
 import com.velocitypowered.proxy.protocol.packet.chat.ChatQueue;
+import com.velocitypowered.proxy.protocol.packet.chat.LastSeenMessages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -55,36 +53,60 @@ public class SessionChatHandler implements ChatHandler<SessionPlayerChatPacket> 
     PlayerChatEvent toSend = new PlayerChatEvent(player, packet.getMessage());
     CompletableFuture<PlayerChatEvent> eventFuture = eventManager.fire(toSend);
     chatQueue.queuePacket(
-        newLastSeenMessages -> eventFuture
-            .thenApply(pme -> {
-              PlayerChatEvent.ChatResult chatResult = pme.getResult();
-              if (!chatResult.isAllowed()) {
-                if (packet.isSigned()) {
-                  invalidCancel(logger, player);
-                }
-                return null;
-              }
+        newLastSeenMessages ->
+            eventFuture
+                .thenApply(
+                    pme -> {
+                      PlayerChatEvent.ChatResult chatResult = pme.getResult();
+                      if (!chatResult.isAllowed()) {
+                        if (packet.isSigned()) {
+                          logger.warn(
+                              "Chat message of {} has been cancelled '{}'. Still forwarding signed message with negative offset.",
+                              player.getUsername(),
+                              packet.getMessage());
+                          LastSeenMessages modifiedMessages = negateOffset(newLastSeenMessages);
+                          return packet.withLastSeenMessages(modifiedMessages);
+                        }
+                        return null;
+                      }
 
-              if (chatResult.getMessage().map(str -> !str.equals(packet.getMessage()))
-                  .orElse(false)) {
-                if (packet.isSigned()) {
-                  invalidChange(logger, player);
-                  return null;
-                }
-                return this.player.getChatBuilderFactory().builder()
-                    .message(chatResult.getMessage().orElse(packet.getMessage()))
-                    .setTimestamp(packet.timestamp)
-                    .setLastSeenMessages(newLastSeenMessages)
-                    .toServer();
-              }
-              return packet.withLastSeenMessages(newLastSeenMessages);
-            })
-            .exceptionally((ex) -> {
-              logger.error("Exception while handling player chat for {}", player, ex);
-              return null;
-            }),
+                      if (chatResult
+                          .getMessage()
+                          .map(str -> !str.equals(packet.getMessage()))
+                          .orElse(false)) {
+                        if (packet.isSigned()) {
+                          logger.warn(
+                              "A plugin tried to change a signed chat message from {}. "
+                                  + "This is not supported for signed messages. Sending original message.",
+                              player.getUsername());
+                          return packet.withLastSeenMessages(newLastSeenMessages);
+                        }
+                        return this.player
+                            .getChatBuilderFactory()
+                            .builder()
+                            .message(chatResult.getMessage().orElse(packet.getMessage()))
+                            .setTimestamp(packet.timestamp)
+                            .setLastSeenMessages(newLastSeenMessages)
+                            .toServer();
+                      }
+                      return packet.withLastSeenMessages(newLastSeenMessages);
+                    })
+                .exceptionally(
+                    (ex) -> {
+                      logger.error("Exception while handling player chat for {}", player, ex);
+                      return null;
+                    }),
         packet.getTimestamp(),
-        packet.getLastSeenMessages()
-    );
+        packet.getLastSeenMessages());
+  }
+
+  /** Negate message offset to tell Cheetah to cancel the message. */
+  private LastSeenMessages negateOffset(LastSeenMessages messages) {
+    if (messages == null) {
+      return null;
+    }
+    int currentOffset = messages.getOffset();
+    int newOffset = currentOffset == 0 ? Integer.MIN_VALUE : -currentOffset;
+    return new LastSeenMessages(newOffset, messages.getAcknowledged(), messages.getChecksum());
   }
 }

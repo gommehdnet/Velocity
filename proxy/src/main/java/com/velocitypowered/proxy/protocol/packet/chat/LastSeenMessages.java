@@ -69,6 +69,10 @@ public class LastSeenMessages {
     return acknowledged;
   }
 
+  public byte getChecksum() {
+    return checksum;
+  }
+
   public LastSeenMessages offset(final int offset) {
     return new LastSeenMessages(this.offset + offset, acknowledged, checksum);
   }
